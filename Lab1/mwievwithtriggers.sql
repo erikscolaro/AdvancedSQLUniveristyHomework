@@ -1,0 +1,55 @@
+-- creazione della vista come tabella 
+CREATE TABLE VM1 (
+    MODALITATRASPORTO CHAR(50) NULL,
+    MESE CHAR(10) NULL,
+    ANNO NUMBER(22, 0) NULL,
+    NUMEROBIGLIETTI_SUM NUMBER(22, 0) NULL,
+    SOMMAPREZZO_SUM NUMBER(22, 0) NULL
+);
+
+--istruzione per forzare un refresh complete della tabella 
+INSERT INTO VM1 (MODALITATRASPORTO, MESE, ANNO, NUMEROBIGLIETTI_SUM, SOMMAPREZZO_SUM)
+SELECT P.MODALITATRASPORTO, T.MESE, T.ANNO, SUM(V.NUMEROBIGLIETTI), SUM(V.SOMMAPREZZO)
+    FROM VIAGGI V
+    JOIN PERCORSO P ON P.IDPERCORSO = V.IDPERCORSO
+    JOIN TEMPO T ON T.IDTEMPO = V.IDTEMPO
+    GROUP BY P.MODALITATRASPORTO, T.MESE, T.ANNO;
+
+--definizione del trigger
+CREATE TRIGGER UpdateAfterInsertionVM1
+AFTER INSERT ON VIAGGI
+FOR EACH ROW
+DECLARE
+    needUpdate NUMBER;
+    meseNew VARCHAR2(10);
+    annoNew VARCHAR2(10);
+    modalitatrasportoNew VARCHAR2(50);
+BEGIN
+    SELECT T.MESE, T.ANNO
+    INTO meseNew, annoNew
+    FROM TEMPO T
+    WHERE T.IDTEMPO = :NEW.IDTEMPO;
+
+    SELECT P.MODALITATRASPORTO
+    INTO modalitatrasportoNew
+    FROM PERCORSO P
+    WHERE P.IDPERCORSO = :NEW.IDPERCORSO;
+
+    SELECT COUNT(*) INTO needUpdate
+    FROM VM1
+    WHERE VM1.MESE = meseNew
+      AND VM1.MODALITATRASPORTO = modalitatrasportoNew;
+
+    -- Se non esiste, inserisci una nuova riga
+    IF needUpdate = 0 THEN
+        INSERT INTO VM1 (MODALITATRASPORTO, MESE, ANNO, NUMEROBIGLIETTI_SUM, SOMMAPREZZO_SUM)
+        VALUES (modalitatrasportoNew, meseNew, annoNew, :NEW.NUMEROBIGLIETTI, :NEW.SOMMAPREZZO);
+    ELSE
+        -- Se esiste, aggiorna i valori esistenti
+        UPDATE VM1
+        SET NUMEROBIGLIETTI_SUM = NUMEROBIGLIETTI_SUM + :NEW.NUMEROBIGLIETTI,
+            SOMMAPREZZO_SUM = SOMMAPREZZO_SUM + :NEW.SOMMAPREZZO
+        WHERE MESE = meseNew
+          AND MODALITATRASPORTO = modalitatrasportoNew;
+    END IF;
+END;
